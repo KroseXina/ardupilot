@@ -172,11 +172,12 @@
 #include "avoidance_adsb.h"
 #endif
 // Local modules
-#include "Parameters.h"
 #if USER_PARAMS_ENABLED
 #include "UserParameters.h"
 #endif
+#include "Parameters.h"
 #include "mode.h"
+#include "UserCode.h"
 
 class Copter : public AP_Vehicle {
 public:
@@ -231,10 +232,14 @@ public:
     friend class _AutoTakeoff;
 
     friend class PayloadPlace;
+    friend class XT;
 
     Copter(void);
 
 private:
+    XT xt;
+    // 读取串口数据（作为目标经纬度）
+    AP_HAL::UARTDriver *xt_uart;
 
     // Global parameters are all contained within the 'g' class.
     Parameters g;

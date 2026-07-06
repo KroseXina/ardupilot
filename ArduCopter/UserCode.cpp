@@ -29,15 +29,14 @@ XT::XT_result XT::handle_recv_data(uint8_t *data, int len, uint8_t id)
 			else
 				parse = WAIT_HEAD1;
 			break;
-        	case WAIT_LENGTH:
-            		length = byte;
-            		index = 0;
-
-            		if (length == 0 || length > sizeof(payload))
-                		parse = WAIT_HEAD1;
-            		else
-                		parse = WAIT_PAYLOAD;
-            		break;
+        case WAIT_LENGTH:
+			length = byte;
+			index = 0;
+			if (length == 0 || length > sizeof(payload))
+				parse = WAIT_HEAD1;
+			else
+				parse = WAIT_PAYLOAD;
+			break;
 		case WAIT_PAYLOAD:
 			payload[index++] = byte;
 			if(index >= length)
@@ -119,27 +118,87 @@ void XT::publish_adsb()
 		if(!found && _target_count < MAX_TARGETS)
 		{
 			_targets[_target_count ++] = vehicle.info;
-		}
-		//为_targets排序
-		for (int i = 0; i < _target_count - 1; ++i)
-		{
-			for (int j = i + 1; j < _target_count; ++j)
+			//为_targets排序
+			for (int i = 0; i < _target_count - 1; ++i)
 			{
-				if (_targets[j].ICAO_address < _targets[i].ICAO_address)
+				for (int j = i + 1; j < _target_count; ++j)
 				{
-					auto tmp = _targets[i];
-					_targets[i] = _targets[j];
-					_targets[j] = tmp;
+					if (_targets[j].ICAO_address < _targets[i].ICAO_address)
+					{
+						auto tmp = _targets[i];
+						_targets[i] = _targets[j];
+						_targets[j] = tmp;
+					}
 				}
 			}
 		}
 }
 
+void XT::clear_map()
+{
+	memset(_matched, 0, sizeof(_matched));
+	memset(_map_icao, 0, sizeof(_map_icao));
+}
+
+void XT::match_target(AP_Mission::Mission_Command &cmd)
+{
+	float best_dist = FLT_MAX;
+	int16_t best_target = -1;
+	//遍历所有的targets，寻找与目标航点最近邻的点进行匹配
+	for(uint16_t i=0;i<_target_count;i++)
+	{
+		if(_matched[i]) continue;
+		Location loc;
+		loc.lat = _targets[i].lat;
+		loc.lng = _targets[i].lon;
+		float distance = cmd.content.location.get_distance(loc);
+		if(distance < best_dist)
+		{
+			best_dist = distance;
+			best_target = i;
+		}
+	}
+
+	if(best_target >= 0 && best_dist < MATCH_DISTANCE)
+	{
+		_map_icao[cmd.index] = _targets[best_target].ICAO_address;
+		_matched[best_target] = true;
+	}
+}
+
+const mavlink_adsb_vehicle_t *XT::find_tar_from_map(uint32_t adress)
+{
+	uint32_t left = 0;
+	uint32_t right = _target_count - 1;
+
+	while(left <= right)
+	{
+		uint32_t mid = (left + right) >> 1;
+		if(_targets[mid].ICAO_address == adress)
+		{
+			return &_targets[mid];
+		}
+
+		if(_targets[mid].ICAO_address < adress)
+		{
+			left = mid + 1;
+		}
+		else
+		{
+			right = mid - 1;
+		}
+	}
+
+	return nullptr;
+}
+
 #ifdef USERHOOK_INIT
 void Copter::userhook_init()
 {
-    // 使用scripting口接收自定义串口数据
+    //使用scripting口接收自定义串口数据
     xt_uart = AP::serialmanager().find_serial(AP_SerialManager::SerialProtocol_Scripting,0);
+	//使用scrip1发送舵机PWM
+	SRV_Channels::set_output_pwm(SRV_Channel::Function::k_scripting1, 1000);
 }
 #endif
 
@@ -158,99 +217,39 @@ void Copter::userhook_50Hz()
 #endif
 
 #ifdef USERHOOK_MEDIUMLOOP
-//10hz进程：处理串口相关，接收数据/发送mission end
+/* 10hz：
+1.处理串口,发布ADSB；
+2.处理称重数据。
+*/
 void Copter::userhook_MediumLoop()
 {
     if(xt_uart == nullptr) return;
 
-	uint8_t xt_id = g2.user_parameters.get_xt_id();
-
-	// 若收到recv_misend,进行自动任务。（等待至少5s执行）
-	static uint16_t count = 0;
-	static bool auto_mission = false;
-
-	AP_Mission& mission = copter.mode_auto.mission;
-
-	if(auto_mission)
-	{
-		count ++;
-		if(count > 50)
-		{
-			count = 0;
-			auto_mission = false;
-
-			//判断当前是否有mission(AP中home点始终作为第一个点)
-			if(mission.num_commands() > 1)
-			{
-				if(!copter.motors->armed())
-				{
-					copter.arming.arm(AP_Arming::Method::SCRIPTING);
-
-					copter.set_mode(Mode::Number::AUTO, ModeReason::GCS_COMMAND);
-					mission.start();
-				}
-			}
-		}
-	}
-
-	// 若任务完成,发送misend,发送5次（1s发送一次）
-	static bool vehicle_in_mission = false;
-    if(copter.motors->armed() && (copter.flightmode == &copter.mode_auto))
-    {
-		vehicle_in_mission = true;
-	}
-
-	if(!copter.motors->armed())
-	{
-        if(vehicle_in_mission && (mission.state() == AP_Mission::MISSION_COMPLETE))
-        {
-			static uint16_t lcount = 0;
-			static uint16_t total_count = 0;
-			lcount ++;
-			if(lcount >= 10)
-			{
-				lcount = 0;
-				total_count ++;
-
-				uint8_t frame[4];
-				frame[0] = 0xAA;
-				frame[1] = 0xFF;
-				frame[2] = xt_id;
-				frame[3] = 0x01;
-
-				xt_uart->write(frame, 4);
-			}
-			if(total_count >= 5)
-			{
-				total_count = 0;
-				vehicle_in_mission = false;
-			}
-		}
-	}
-
-	// 处理接收数据
+	//处理串口数据
     uint8_t buf[64];
     uint16_t n = MIN(xt_uart->available(),sizeof(buf));
-    if(n == 0) return;
-    
-    xt_uart->read(buf, n);
+	if(n > 0)
+	{
+		xt_uart->read(buf, n);
 
-    XT::XT_result result;
-    result = xt.handle_recv_data(buf, n, xt_id);
+		XT::XT_result result;
+		result = xt.handle_recv_data(buf, n, xt.xt_id);
+		switch (result)
+		{
+		case XT::NONE :
+			break;
+		
+		case XT::RECV_LORA :
+			xt.publish_adsb();
+			break;
 
-    switch (result)
-    {
-    case XT::NONE :
-        break;
-    
-    case XT::RECV_LORA :
-		xt.publish_adsb();
-        break;
+		case XT::RECV_MISEND :
+			xt.auto_mission = true;
+			break;
+		}
+	}
 
-	case XT::RECV_MISEND :
-		auto_mission = true;
-		break;
-    }
+	//TODO：处理称重数据
 }
 #endif
 
@@ -262,9 +261,159 @@ void Copter::userhook_SlowLoop()
 #endif
 
 #ifdef USERHOOK_SUPERSLOWLOOP
+/* 1hz：
+1.发布mission end，以及自动mission；
+2.在使用了信标建立航线的前提下，gcs上传航点后进行march；
+3.每次到达航点打开舵机，自动修订下一个航点 。
+*/
 void Copter::userhook_SuperSlowLoop()
 {
-    // put your 1Hz code here
+	xt.xt_id = g2.user_parameters.get_xt_id();
+
+	AP_Mission& mission = copter.mode_auto.mission;
+
+	// 若收到recv_misend,进行自动任务。（等待约5s再执行）
+	if(xt.auto_mission)
+	{
+		static uint8_t count = 0;
+		count ++;
+		if(count > 5)
+		{
+			//判断当前是否有mission(AP中home点始终作为第一个点)
+			if(mission.num_commands() > 1)
+			{
+				if(!copter.motors->armed())
+				{
+					copter.arming.arm(AP_Arming::Method::SCRIPTING);
+					copter.set_mode(Mode::Number::AUTO, ModeReason::GCS_COMMAND);
+					mission.start();
+				}
+			}
+
+			count = 0;
+			xt.auto_mission = false;
+		}
+	}
+
+	//飞机是否进入了mission
+	static bool vehicle_in_mission = false;
+    if(copter.motors->armed() && (copter.flightmode == &copter.mode_auto))
+    {
+		vehicle_in_mission = true;
+
+		//如果是由信标建立的任务，进行投喂及下一点修正
+		if(xt.xt_build_mis)
+		{
+			AP_Mission::Mission_Command current;
+			AP_Mission::Mission_Command next;
+
+			current = mission.get_current_nav_cmd();
+			if(current.id == MAV_CMD_NAV_LOITER_TIME)
+			{
+				if(copter.wp_nav->reached_wp_destination())
+				{
+					//等待约1s后打开舵机
+					static bool wait = true;
+					if(wait)
+					{
+						static uint8_t count = 0;
+						count ++;
+						if(count > 1)
+						{
+							SRV_Channels::set_output_pwm(SRV_Channel::Function::k_scripting1, 2000);
+							count = 0;
+							wait = false;
+						}
+					}
+
+					//如果下一个点还是投喂，进行修正
+					if(mission.read_cmd_from_storage(current.index + 1, next) && (next.id == MAV_CMD_NAV_LOITER_TIME))
+					{
+						//更新下一个点的坐标信息
+						uint32_t icao = xt.get_map_icao(next.index);
+						if(icao == 0) return;
+						const mavlink_adsb_vehicle_t *target = xt.find_tar_from_map(icao);
+						if(target == nullptr)
+						{
+							gcs().send_text(MAV_SEVERITY_ERROR,"XT：Target Lost.");
+							return;
+						}
+						Location new_nextLoc = next.content.location;
+						new_nextLoc.lat = target->lat;
+						new_nextLoc.lng = target->lon;
+
+						//误差超过2m时进行修正					
+						if(next.content.location.get_distance(new_nextLoc) > 2.0f)
+						{
+							next.content.location.lat = new_nextLoc.lat;
+							next.content.location.lng = new_nextLoc.lng;
+							if(!mission.replace_cmd(next.index, next))
+							{
+								gcs().send_text(MAV_SEVERITY_WARNING,"XT：Change WP Failed.");
+								return;
+							};
+						}
+					}
+
+					//TODO：关闭舵机，然后让mode_auto中verify_loiter_time判断为true
+				}
+			}
+		}
+	}
+
+	if(!copter.motors->armed())
+	{
+		//未解锁的前提下，接收gcs是否上传了航点
+		if(mission.xt_wp_trans)
+		{
+			//gcs().send_text(MAV_SEVERITY_INFO,"XT:WP Trans Complete.");
+			//对新航点和targets进行匹配
+			if(xt.xt_build_mis)
+			{
+				//先清理当前匹配关系
+				xt.clear_map();
+				AP_Mission::Mission_Command cmd;
+				for(uint16_t i = 0; i < mission.num_commands(); i++)
+				{
+					mission.read_cmd_from_storage(i, cmd);
+					if(cmd.id == MAV_CMD_NAV_LOITER_TIME)
+					{
+						xt.match_target(cmd);
+					}
+				}
+			}
+			mission.xt_wp_trans = false;
+		}
+
+		//完成了飞行任务后执行
+        if(vehicle_in_mission && (mission.state() == AP_Mission::MISSION_COMPLETE))
+        {
+			//如果是信标建立的任务，注销_xt_build_mis
+			if(xt.xt_build_mis)
+			{
+				xt.xt_build_mis = false;
+			}
+
+			//发送完成信息，发送5次
+			if(xt_uart != nullptr)
+			{
+				uint8_t frame[4];
+				frame[0] = 0xAA;
+				frame[1] = 0xFF;
+				frame[2] = xt.xt_id;
+				frame[3] = 0x01;
+				xt_uart->write(frame, 4);
+			}
+			
+			static uint8_t count = 0;
+			count ++;
+			if(count > 5)
+			{
+				count = 0;
+				vehicle_in_mission = false;
+			}
+		}
+	}
 }
 #endif
 
@@ -291,7 +440,9 @@ void Copter::userhook_auxSwitch1(const RC_Channel::AuxSwitchPos ch_flag)
 		//1.takeoff(在设定第一条cmd时，AP_Mission会自动添加一个home作为index 0)
 		cmd.id = MAV_CMD_NAV_TAKEOFF;
 		cmd.p1 = 0;
-		cmd.content.location = Location{0,0,300,Location::AltFrame::ABOVE_HOME};
+		cmd.content.location = copter.current_loc;
+		cmd.content.location.alt = 300;
+		cmd.content.location.relative_alt = static_cast<uint8_t>(Location::AltFrame::ABOVE_HOME);
 		mission.add_cmd(cmd);
 
 		//2.依据targets列表添加航点
@@ -315,6 +466,8 @@ void Copter::userhook_auxSwitch1(const RC_Channel::AuxSwitchPos ch_flag)
 		mission.add_cmd(cmd);
 
 		mission.set_current_cmd(1);
+		
+		xt.xt_build_mis = true;
 	}
 }
 

@@ -508,6 +508,9 @@ public:
         MISSION_COMPLETE=2
     };
 
+    //XT:gcs上传完航点后的标志
+    bool xt_wp_trans{false};
+
     ///
     /// public mission methods
     ///

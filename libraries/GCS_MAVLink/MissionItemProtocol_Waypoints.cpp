@@ -61,6 +61,7 @@ MAV_MISSION_RESULT MissionItemProtocol_Waypoints::complete(const GCS_MAVLINK &_l
 #if HAL_LOGGING_ENABLED
     AP::logger().Write_EntireMission();
 #endif
+    mission.xt_wp_trans = true;
     return MAV_MISSION_ACCEPTED;
 }
 

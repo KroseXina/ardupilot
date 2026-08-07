@@ -12,6 +12,13 @@ const AP_Param::GroupInfo UserParameters::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("_XT_ID", 0, UserParameters, _xt_id, 0),
 
+    // @Param: _XT_WET
+    // @DisplayName: Print weight data on GCS.
+    // @Description: Determin wether print weight data or not.0 means disable.
+    // @Range: 0 1
+    // @User: Standard
+    AP_GROUPINFO("_XT_WET", 1, UserParameters, _enPrtWET, 0),
+
     AP_GROUPEND
 };
 

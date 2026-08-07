@@ -178,6 +178,9 @@
 #include "Parameters.h"
 #include "mode.h"
 #include "UserCode.h"
+#if HAL_XTCAN_ENABLED
+#include <AP_XTCAN/AP_XTCAN.h>
+#endif
 
 class Copter : public AP_Vehicle {
 public:
@@ -239,7 +242,10 @@ public:
 private:
     XT xt;
     // 读取串口数据（作为目标经纬度）
-    AP_HAL::UARTDriver *xt_uart;
+    AP_HAL::UARTDriver *xt_uart{nullptr};
+#if HAL_XTCAN_ENABLED
+    AP_XTCAN *xtcan{nullptr};
+#endif
 
     // Global parameters are all contained within the 'g' class.
     Parameters g;

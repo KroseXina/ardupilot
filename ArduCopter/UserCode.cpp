@@ -199,6 +199,19 @@ void Copter::userhook_init()
     xt_uart = AP::serialmanager().find_serial(AP_SerialManager::SerialProtocol_Scripting,0);
 	//使用scrip1发送舵机PWM
 	SRV_Channels::set_output_pwm(SRV_Channel::Function::k_scripting1, 1000);
+	//初始化XTCAN
+#if HAL_XTCAN_ENABLED
+    uint8_t num_drivers = AP::can().get_num_drivers();
+    for (uint8_t i = 0; i < num_drivers; i++)
+    {
+        AP_XTCAN *ap_xtcan = AP_XTCAN::get_xtcan(i);
+        if(ap_xtcan != nullptr)
+        {
+            xtcan = ap_xtcan;
+            break;
+        }
+    } 
+#endif
 }
 #endif
 
@@ -219,37 +232,63 @@ void Copter::userhook_50Hz()
 #ifdef USERHOOK_MEDIUMLOOP
 /* 10hz：
 1.处理串口,发布ADSB；
-2.处理称重数据。
+2.处理CAN口数据(称重数据)
 */
 void Copter::userhook_MediumLoop()
 {
-    if(xt_uart == nullptr) return;
-
 	//处理串口数据
-    uint8_t buf[64];
-    uint16_t n = MIN(xt_uart->available(),sizeof(buf));
-	if(n > 0)
+    if(xt_uart != nullptr)
 	{
-		xt_uart->read(buf, n);
-
-		XT::XT_result result;
-		result = xt.handle_recv_data(buf, n, xt.xt_id);
-		switch (result)
+		uint8_t buf[64];
+		uint16_t n = MIN(xt_uart->available(),sizeof(buf));
+		if(n > 0)
 		{
-		case XT::NONE :
-			break;
-		
-		case XT::RECV_LORA :
-			xt.publish_adsb();
-			break;
+			xt_uart->read(buf, n);
 
-		case XT::RECV_MISEND :
-			xt.auto_mission = true;
-			break;
+			XT::XT_result result;
+			result = xt.handle_recv_data(buf, n, xt.xt_id);
+			switch (result)
+			{
+			case XT::NONE :
+				break;
+			
+			case XT::RECV_LORA :
+				xt.publish_adsb();
+				break;
+
+			case XT::RECV_MISEND :
+				xt.auto_mission = true;
+				break;
+			}
 		}
 	}
 
-	//TODO：处理称重数据
+	//处理称重数据
+#if HAL_XTCAN_ENABLED
+	if(xtcan != nullptr)
+	{
+		AP_XTCAN::XTCAN_Frame frame;
+		static uint16_t count = 0;
+		if(xtcan->xtcan_get_frame(frame))
+		{
+			if(frame.frametype == AP_XTCAN::XTCAN_Frame::FrameType::WEIGHT)
+			{
+				xt.WetData = frame.data;
+				xt.WetValid = true;
+				count = 0;
+			}
+		}
+		else //设置3s超时
+		{
+			count ++;
+			if(count > 30)
+			{
+				xt.WetValid = false;
+				count = 0;
+			}
+		}
+	}
+#endif
 }
 #endif
 
@@ -264,7 +303,8 @@ void Copter::userhook_SlowLoop()
 /* 1hz：
 1.发布mission end，以及自动mission；
 2.在使用了信标建立航线的前提下，gcs上传航点后进行march；
-3.每次到达航点打开舵机，自动修订下一个航点 。
+3.每次到达航点打开舵机，自动修订下一个航点；
+4.根据参数设置，打印重量信息。
 */
 void Copter::userhook_SuperSlowLoop()
 {
@@ -413,6 +453,15 @@ void Copter::userhook_SuperSlowLoop()
 				vehicle_in_mission = false;
 			}
 		}
+	}
+
+	//打印重量信息
+	if(g2.user_parameters.get_enPrtWET() != 0)
+	{
+		if(xt.WetValid)
+			gcs().send_text(MAV_SEVERITY_INFO,"XT:weight = %2f.",xt.WetData);
+		else
+			gcs().send_text(MAV_SEVERITY_WARNING,"XT:weight data timeout!");
 	}
 }
 #endif

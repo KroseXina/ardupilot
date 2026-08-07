@@ -25,6 +25,7 @@
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include <AP_Vehicle/AP_Vehicle_Type.h>
 #include <AP_DroneCAN/AP_DroneCAN.h>
+#include <AP_XTCAN/AP_XTCAN.h>
 #include <AP_KDECAN/AP_KDECAN.h>
 #include <AP_SerialManager/AP_SerialManager.h>
 #include <AP_PiccoloCAN/AP_PiccoloCAN.h>
@@ -211,6 +212,18 @@ void AP_CANManager::init()
             }
 
             AP_Param::load_object_from_eeprom((AP_PiccoloCAN*)_drivers[drv_num], AP_PiccoloCAN::var_info);
+            break;
+#endif
+#if HAL_XTCAN_ENABLED
+        case AP_CAN::Protocol::XTCAN:
+            _drivers[drv_num] = _drv_param[drv_num]._xtcan = NEW_NOTHROW AP_XTCAN(drv_num);
+
+            if (_drivers[drv_num] == nullptr) {
+                AP_BoardConfig::allocation_error("xtcan %d", i + 1);
+                continue;
+            }
+
+            AP_Param::load_object_from_eeprom((AP_XTCAN*)_drivers[drv_num], AP_XTCAN::var_info);
             break;
 #endif
         default:

@@ -158,7 +158,7 @@ void _AutoTakeoff::run()
     // aircraft stays in landed state until vertical movement is detected or 90% throttle is reached
     if (copter.ap.land_complete) {
         // send throttle to attitude controller with angle boost
-        float throttle = constrain_float(copter.attitude_control->get_throttle_in() + copter.G_Dt / copter.g2.takeoff_throttle_slew_time, 0.0, 1.0);
+        float throttle = constrain_float(copter.attitude_control->get_throttle_in() + 0.2 * copter.G_Dt / copter.g2.takeoff_throttle_slew_time, 0.0, 1.0);
         copter.attitude_control->set_throttle_out(throttle, true, 0.0);
         // tell position controller to reset alt target and reset I terms
         copter.pos_control->D_init_controller();

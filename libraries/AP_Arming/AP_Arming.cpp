@@ -68,6 +68,7 @@
 
   #include <AP_PiccoloCAN/AP_PiccoloCAN.h>
   #include <AP_DroneCAN/AP_DroneCAN.h>
+  #include <AP_XTCAN/AP_XTCAN.h>
 #endif
 
 #include <AP_Logger/AP_Logger.h>
@@ -1340,6 +1341,17 @@ bool AP_Arming::can_checks(bool report)
                     AP_DroneCAN *ap_dronecan = AP_DroneCAN::get_dronecan(i);
                     if (ap_dronecan != nullptr && !ap_dronecan->prearm_check(fail_msg, ARRAY_SIZE(fail_msg))) {
                         check_failed(Check::SYSTEM, report, "DroneCAN: %s", fail_msg);
+                        return false;
+                    }
+#endif
+                    break;
+                }
+                case AP_CAN::Protocol::XTCAN:
+                {
+#if HAL_XTCAN_ENABLED
+                    AP_XTCAN *ap_xtcan = AP_XTCAN::get_xtcan(i);
+                    if (ap_xtcan != nullptr && !ap_xtcan->prearm_check(fail_msg, ARRAY_SIZE(fail_msg))) {
+                        check_failed(Check::SYSTEM, report, "XTCAN: %s", fail_msg);
                         return false;
                     }
 #endif

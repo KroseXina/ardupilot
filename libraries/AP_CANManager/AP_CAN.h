@@ -29,5 +29,6 @@ public:
         Scripting2 = 12,
         TOFSenseP = 13,
         RadarCAN = 14,  // used by NanoRadar and Hexsoon
+        XTCAN = 15,   //xt解析自定义can
     };
 };

@@ -40,6 +40,8 @@ public:
     bool xt_build_mis{false};
     bool auto_mission{false};
     uint8_t xt_id{0};
+    bool WetValid{false};
+    float WetData{0.0f};
 
 private:
     static constexpr uint8_t MAX_TARGETS = 32;

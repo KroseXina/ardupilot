@@ -575,6 +575,7 @@ public:
 #endif
         NAV_SCRIPT_TIME,
         NAV_ATTITUDE_TIME,
+        XT_YAW,
     };
 
     // set submode.  returns true on success, false on failure
@@ -677,6 +678,9 @@ private:
     void loiter_run();
     void loiter_to_alt_run();
     void nav_attitude_time_run();
+    void xt_yaw_run();
+    Location xt_store_loc{};
+    float xt_yawtarget_rad{};
 
     // get the Location portion of a command.  If the command's lat and lon and/or alt are zero the default_loc's lat,lon and/or alt are returned instead
     // returns false if the location cannot be determined which only happens if the terrain data is unavailable
@@ -1584,6 +1588,10 @@ protected:
     void set_descent_target_alt(uint32_t alt) { rtl_path.descent_target.alt = alt; }
 
 private:
+
+    bool yaw_has_done{false};
+    bool in_climb_state{false};
+    float tar_yaw_rad{0.0f};
 
     void climb_start();
     void return_start();

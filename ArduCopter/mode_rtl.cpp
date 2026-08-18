@@ -198,7 +198,7 @@ void ModeRTL::climb_start()
     _state_complete = false;
 
     // set the destination
-    if (!wp_nav->set_wp_destination_loc(rtl_path.climb_target) || !wp_nav->set_wp_destination_next_loc(rtl_path.return_target)) {
+    if (!wp_nav->set_wp_destination_loc(rtl_path.climb_target) ) { //|| !wp_nav->set_wp_destination_next_loc(rtl_path.return_target)) {
         // this should not happen because rtl_build_path will have checked terrain data was available
         gcs().send_text(MAV_SEVERITY_CRITICAL,"RTL: unexpected error setting climb target");
         LOGGER_WRITE_ERROR(LogErrorSubsystem::NAVIGATION, LogErrorCode::FAILED_TO_SET_DESTINATION);
@@ -208,21 +208,47 @@ void ModeRTL::climb_start()
 
     // hold current yaw during initial climb
     auto_yaw.set_mode(AutoYaw::Mode::HOLD);
+
+    yaw_has_done = false;
+    in_climb_state = true;
 }
 
 // rtl_return_start - initialise return to home
 void ModeRTL::return_start()
 {
-    _state = SubMode::RETURN_HOME;
-    _state_complete = false;
+    // 先完成偏航再return
+    // 计算期望yaw
+    if(!yaw_has_done) {
+        _state_complete = false;
+        
+        Vector2p climb_ne_m;
+        if(!rtl_path.climb_target.get_vector_xy_from_origin_NE_m(climb_ne_m))
+            return;
+        Vector2p return_ne_m;
+        if(!rtl_path.return_target.get_vector_xy_from_origin_NE_m(return_ne_m))
+            return;
+        tar_yaw_rad = get_bearing_rad(climb_ne_m.tofloat(),return_ne_m.tofloat());
+        
+        // 维持在当前的位置，仅进行偏航
+        if(!wp_nav->set_wp_destination_loc(rtl_path.climb_target))
+            restart_without_terrain();
 
-    if (!wp_nav->set_wp_destination_loc(rtl_path.return_target)) {
-        // failure must be caused by missing terrain data, restart RTL
-        restart_without_terrain();
+        // 设置目前偏航角度
+        auto_yaw.set_yaw_angle_and_rate_rad(tar_yaw_rad,0.0f);
     }
 
-    // initialise yaw to point home (maybe)
-    auto_yaw.set_mode_to_default(true);
+    else {
+        _state = SubMode::RETURN_HOME;
+        _state_complete = false;
+
+        if (!wp_nav->set_wp_destination_loc(rtl_path.return_target)) {
+            // failure must be caused by missing terrain data, restart RTL
+            restart_without_terrain();
+        }
+
+        // initialise yaw to point home (maybe)
+        auto_yaw.set_mode_to_default(true);
+    }
 }
 
 // rtl_climb_return_run - implements the initial climb, return home and descent portions of RTL which all rely on the wp controller
@@ -248,8 +274,19 @@ void ModeRTL::climb_return_run()
     // call attitude controller with auto yaw
     attitude_control->input_thrust_vector_heading(pos_control->get_thrust_vector(), auto_yaw.get_heading());
 
-    // check if we've completed this stage of RTL
-    _state_complete = wp_nav->reached_wp_destination();
+    // 完成判断进行区分：对于yaw阶段，角度误差小于2度；对于climb和return阶段，到达目标点
+    if(yaw_has_done || in_climb_state) {
+        if(wp_nav->reached_wp_destination()) {
+            _state_complete = true;
+            in_climb_state = false;
+        }
+    }
+    else {
+        if(fabsf(wrap_PI(tar_yaw_rad - copter.ahrs.get_yaw_rad())) <= radians(2)) {
+            _state_complete = true;
+            yaw_has_done = true;
+        }
+    }
 }
 
 // loiterathome_start - initialise return to home

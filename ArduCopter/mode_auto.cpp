@@ -161,6 +161,10 @@ void ModeAuto::run()
     case SubMode::NAV_ATTITUDE_TIME:
         nav_attitude_time_run();
         break;
+
+    case SubMode::XT_YAW:
+        xt_yaw_run();
+        break;
     }
 
     // only pretend to be in auto RTL so long as mission still thinks its in a landing sequence or the mission has completed
@@ -240,6 +244,7 @@ bool ModeAuto::move_vehicle_on_ekf_reset() const
 #endif
     case SubMode::NAV_SCRIPT_TIME:
     case SubMode::NAV_ATTITUDE_TIME:
+    case SubMode::XT_YAW:
         // these submodes reset their targets so the vehicle does not physically move
         return false;
     case SubMode::WP:    
@@ -470,6 +475,40 @@ bool ModeAuto::wp_start(const Location& dest_loc)
         if (is_positive(desired_speed_override_ms.down)) {
             wp_nav->set_speed_down_ms(desired_speed_override_ms.down);
         }
+    }
+
+    // 首先执行偏航动作，完成后再执行飞往目标点（仅在参数设置为朝向下一点时执行）
+    if(copter.g.wp_yaw_behavior == Copter::WPYawBehavior::LOOK_AT_NEXT_WP || 
+        copter.g.wp_yaw_behavior == Copter::WPYawBehavior::LOOK_AT_NEXT_WP_EXCEPT_RTL) {
+
+        xt_store_loc = dest_loc;
+        Vector2p dest_ne_m;
+        if(!dest_loc.get_vector_xy_from_origin_NE_m(dest_ne_m))
+            return false;
+        
+        // // 获取当前位置并计算与目标位置的偏航角度
+        // Location cur_loc = copter.current_loc;
+        // Vector2p loc_ne_m;
+        // if(!cur_loc.get_vector_xy_from_origin_NE_m(loc_ne_m))
+        //     return false;
+
+        // xt_yawtarget_rad = get_bearing_rad(loc_ne_m.tofloat(), dest_ne_m.tofloat());
+
+        // if (!wp_nav->set_wp_destination_loc(cur_loc)) {
+        // return false;
+        // }
+        
+        // 使用停止点比使用当前点更稳定/丝滑
+        Vector3p stopping_point_ned_m;
+        wp_nav->get_wp_stopping_point_NED_m(stopping_point_ned_m);
+        wp_nav->set_wp_destination_NED_m(stopping_point_ned_m);
+
+        xt_yawtarget_rad = get_bearing_rad(stopping_point_ned_m.xy().tofloat(), dest_ne_m.tofloat());
+
+        auto_yaw.set_yaw_angle_and_rate_rad(xt_yawtarget_rad, 0.0f);
+
+        set_submode(SubMode::XT_YAW);
+        return true;
     }
 
     if (!wp_nav->set_wp_destination_loc(dest_loc)) {
@@ -1275,6 +1314,39 @@ void ModeAuto::nav_attitude_time_run()
     pos_control->D_update_controller();
 }
 
+// 每触发一个航点，在进入wp_run之前，先进行yaw修正(LOOK_AT_NEXT/EXCEPT_RTL模式下生效)
+void ModeAuto::xt_yaw_run()
+{
+// if not armed set throttle to zero and exit immediately
+    if (is_disarmed_or_landed()) {
+        make_safe_ground_handling();
+        return;
+    }
+
+    // set motors to full range
+    motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+
+    // run waypoint and z-axis position controller
+    copter.failsafe_terrain_set_status(wp_nav->update_wpnav());
+
+    pos_control->D_update_controller();
+
+    // call attitude controller with auto yaw
+    attitude_control->input_thrust_vector_heading(pos_control->get_thrust_vector(), auto_yaw.get_heading());
+
+    // 偏航到位，转到wp_run
+    if(fabsf(wrap_PI(xt_yawtarget_rad - copter.ahrs.get_yaw_rad())) <= radians(2)){
+        // 设置目标位置
+        if(!wp_nav->set_wp_destination_loc(xt_store_loc))
+            return;
+        // 释放yaw控制
+        auto_yaw.set_mode_to_default(false);
+
+        // set submode
+        set_submode(SubMode::WP);
+    }
+}
+
 #if AC_PAYLOAD_PLACE_ENABLED
 // auto_payload_place_run - places an object in auto mode
 //      called by auto_run at 100hz or more
@@ -1585,10 +1657,13 @@ void ModeAuto::do_nav_wp(const AP_Mission::Mission_Command& cmd)
     }
 
     // set next destination if necessary
-    if (!set_next_wp(cmd, target_loc)) {
-        // failure to set next destination can only be because of missing terrain data
-        copter.failsafe_terrain_on_event();
-        return;
+    // 如果在进行偏航修正，就不要预加载下一个航点，否则会累积改变target_loc
+    if(_mode != SubMode::XT_YAW){
+        if (!set_next_wp(cmd, target_loc)) {
+            // failure to set next destination can only be because of missing terrain data
+            copter.failsafe_terrain_on_event();
+            return;
+        }
     }
 }
 
@@ -2273,6 +2348,10 @@ bool ModeAuto::verify_yaw()
 // verify_nav_wp - check if we have reached the next way point
 bool ModeAuto::verify_nav_wp(const AP_Mission::Mission_Command& cmd)
 {
+    // 当进行仅偏航修正时，不验证航点到达，否则会推进ap_mission
+    if(_mode == SubMode::XT_YAW) 
+        return false;
+
     // check if we have reached the waypoint
     if ( !copter.wp_nav->reached_wp_destination() ) {
         return false;

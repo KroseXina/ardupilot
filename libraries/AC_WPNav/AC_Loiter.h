@@ -135,4 +135,7 @@ protected:
     Vector2f    _predicted_euler_accel;     // Predicted roll/pitch angular rates (in rad/s) for pilot acceleration shaping.
     uint32_t    _brake_timer_ms;            // Timestamp (in ms) when braking logic was last triggered (sticks released).
     float       _brake_accel_mss;           // Current braking acceleration in m/s², updated using jerk limits over time.
+    bool        _brake_start{false};        // 通过加速度判断当前是否进入刹车减速阶段
+    bool        _brake_done{false};         // 进入刹车减速阶段后通过加速度判断刹车完毕
+    Vector2p    _brake_loc;                 // 刹车锁定时的位置，用以保持
 };

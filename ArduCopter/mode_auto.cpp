@@ -507,6 +507,7 @@ bool ModeAuto::wp_start(const Location& dest_loc)
 
         auto_yaw.set_yaw_angle_and_rate_rad(xt_yawtarget_rad, 0.0f);
 
+        xt_yaw_wait = false;
         set_submode(SubMode::XT_YAW);
         return true;
     }
@@ -1336,14 +1337,23 @@ void ModeAuto::xt_yaw_run()
 
     // 偏航到位，转到wp_run
     if(fabsf(wrap_PI(xt_yawtarget_rad - copter.ahrs.get_yaw_rad())) <= radians(2)){
-        // 设置目标位置
-        if(!wp_nav->set_wp_destination_loc(xt_store_loc))
-            return;
-        // 释放yaw控制
-        auto_yaw.set_mode_to_default(false);
+        // 原地等待2s再前进
+        static uint32_t start_ms{};
+        if(!xt_yaw_wait) {
+            start_ms = AP_HAL::millis();
+            xt_yaw_wait = true;
+        }
+        
+        if(AP_HAL::millis() - start_ms >= 2 * 1000) {
+            // 设置目标位置
+            if(!wp_nav->set_wp_destination_loc(xt_store_loc))
+                return;
+            // 释放yaw控制
+            auto_yaw.set_mode_to_default(false);
 
-        // set submode
-        set_submode(SubMode::WP);
+            // set submode
+            set_submode(SubMode::WP);
+        }
     }
 }
 

@@ -211,6 +211,7 @@ void ModeRTL::climb_start()
 
     yaw_has_done = false;
     in_climb_state = true;
+    yaw_wait = false;
 }
 
 // rtl_return_start - initialise return to home
@@ -283,8 +284,17 @@ void ModeRTL::climb_return_run()
     }
     else {
         if(fabsf(wrap_PI(tar_yaw_rad - copter.ahrs.get_yaw_rad())) <= radians(2)) {
-            _state_complete = true;
-            yaw_has_done = true;
+            // 偏航完成2s后再推进
+            static uint32_t start_ms{};
+            if(!yaw_wait) {
+                start_ms = AP_HAL::millis();
+                yaw_wait = true;
+            }
+            
+            if(AP_HAL::millis() - start_ms >= 2 * 1000) {
+                _state_complete = true;
+                yaw_has_done = true;
+            }
         }
     }
 }

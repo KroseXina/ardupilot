@@ -681,6 +681,7 @@ private:
     void xt_yaw_run();
     Location xt_store_loc{};
     float xt_yawtarget_rad{};
+    bool xt_yaw_wait{false};
 
     // get the Location portion of a command.  If the command's lat and lon and/or alt are zero the default_loc's lat,lon and/or alt are returned instead
     // returns false if the location cannot be determined which only happens if the terrain data is unavailable
@@ -1592,6 +1593,7 @@ private:
     bool yaw_has_done{false};
     bool in_climb_state{false};
     float tar_yaw_rad{0.0f};
+    bool yaw_wait{false};
 
     void climb_start();
     void return_start();

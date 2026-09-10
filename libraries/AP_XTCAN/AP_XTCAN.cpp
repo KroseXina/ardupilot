@@ -140,6 +140,7 @@ void AP_XTCAN::loop()
             uint32_t avg_weight = 0;
             //GCS_SEND_TEXT(MAV_SEVERITY_INFO,"XT:id = ""%" PRIu32,rxFrame.id);
             uint32_t id = rxFrame.id & AP_HAL::CANFrame::MaskExtID; //扩展帧，协议会将最高位置为1,需要还原&0x1FFFFFFF
+
             if((id >> 4) == 0x8132) //称重模块(id分为0x81326与0x81320)
             {
                 switch (id & 0xF)
@@ -166,6 +167,81 @@ void AP_XTCAN::loop()
                         break;
                 }
             }
+
+            if(((id >> 8) & 0xFFFF ) == 0x1092) //格式电池，1092查询模式
+            {
+                uint8_t recv_id = id & 0x7F;
+                XTBatRx *batrx{nullptr};
+
+                bool found{false};
+                uint8_t index{};
+                for(; index<MAX_BAT_NUM; index++) {
+                    //匹配已有的batid
+                    if(_recvbat[index].bat_id == recv_id) {
+                        found = true;
+                        batrx = &_recvbat[index];
+                        break;
+                    }
+                }
+                if(!found) {
+                    //未找到，分配新槽
+                    for(index=0; index<MAX_BAT_NUM; index++) {
+                        //电池本身id不会为0
+                        if(_recvbat[index].bat_id == 0) {
+                            batrx = &_recvbat[index];
+                            batrx->bat_id = recv_id;
+                            break;
+                        }
+                    }
+                }
+
+                if(batrx == nullptr) continue;;
+
+                uint8_t dlc = rxFrame.dlc; //帧长度
+                if(dlc < 1) continue;
+                uint8_t tail_byte = rxFrame.data[dlc - 1]; 
+                bool toggle = tail_byte & 0x20; //每帧翻转，第6bite
+
+                if(tail_byte & 0x80) //起始帧(前两字节为crc,尾字节第8bite表示起始)
+                {
+                    if(dlc < 3) continue;
+                    const uint8_t copy_len = dlc - 3;
+                    if (batrx->offset + copy_len > sizeof(batrx->payload)) {
+                        batrx->receiving = false;
+                        batrx->offset = 0;
+                        continue;
+                    }
+
+                    batrx->toggle = toggle;
+                    batrx->receiving = true;
+                    batrx->offset = 0; 
+                    memcpy(&batrx->payload[batrx->offset], rxFrame.data + 2, copy_len); //去除前两字节和tail
+                    batrx->offset += copy_len;
+                }
+                else //中间帧
+                {
+                    if(!batrx->receiving) continue;
+                    if(toggle == batrx->toggle) { // toggle未翻转
+                        batrx->receiving = false;
+                        continue;
+                    }
+                    const uint8_t copy_len = dlc - 1;
+                    if (batrx->offset + copy_len > sizeof(batrx->payload)) {
+                        batrx->receiving = false;
+                        batrx->offset = 0;
+                        continue;
+                    }
+
+                    batrx->toggle = toggle;
+                    memcpy(&batrx->payload[batrx->offset], rxFrame.data, copy_len); //去除tail
+                    batrx->offset += copy_len;
+
+                    if(tail_byte & 0x40) { //结束帧(尾字节第7bite表示结束)
+                        batrx->receiving = false;
+                        phrase_GS_battery(batrx->payload, batrx->offset, index);
+                    }
+                }
+            }
         }
     }
 }
@@ -182,4 +258,32 @@ bool AP_XTCAN::xtcan_get_frame(XTCAN_Frame &frame)
     return true;
 }
 
+void AP_XTCAN::phrase_GS_battery(uint8_t *payload, uint8_t len, uint8_t index)
+{
+    if(payload == nullptr || len < 16 || index >= MAX_BAT_NUM) return;
+
+    WITH_SEMAPHORE(_sem);
+
+    XTCAN_BAT &bat = _xtcan_bat[index];
+    _new_bat_info[index] = true;
+
+    //格式电池：5-6字节电压，7-8字节电流，9-10温度，11-12soc，15-16soh
+    bat.batid = index;
+    bat.voltage = (payload[4] | (payload[5] << 8)) / 100;
+    bat.current = ((int16_t)(payload[6] | (payload[7] << 8))) / 100;
+    bat.temperature = ((int16_t)(payload[8] | (payload[9] << 8))) * 1.0f;
+    bat.soc = payload[10] | (payload[11] << 8);
+    bat.soh = payload[14] | (payload[15] << 8);
+}
+
+bool AP_XTCAN::xtcan_get_bat_info(XTCAN_BAT &bat_info, uint8_t index)
+{
+    WITH_SEMAPHORE(_sem);
+    if(index >= MAX_BAT_NUM || !_new_bat_info[index]) return false;
+
+    bat_info = _xtcan_bat[index];
+    _new_bat_info[index] = false;
+
+    return true;
+}
 #endif //HAL_XTCAN_ENABLED

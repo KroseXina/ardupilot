@@ -29,6 +29,7 @@
 #include "AP_BattMonitor_AD7091R5.h"
 #include "AP_BattMonitor_Scripting.h"
 #include "AP_BattMonitor_TIBQ76952.h"
+#include "AP_BattMonitor_XTCAN.h"
 
 #include <AP_HAL/AP_HAL.h>
 
@@ -713,6 +714,11 @@ AP_BattMonitor::init()
                 drivers[instance] = NEW_NOTHROW AP_BattMonitor_TIBQ76952(*this, state[instance], _params[instance]);
                 break;
 #endif // AP_BATTERY_TIBQ76952_ENABLED
+#if HAL_XTCAN_ENABLED
+            case Type::XTCAN:
+                drivers[instance] = NEW_NOTHROW AP_BattMonitor_XTCAN(*this, state[instance],_params[instance],instance);
+                break;
+#endif // HAL_XTCAN_ENABLED
             case Type::NONE:
             default:
                 break;

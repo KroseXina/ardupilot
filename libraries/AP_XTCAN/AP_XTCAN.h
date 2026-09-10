@@ -42,12 +42,38 @@ public:
         float data;
     };
 
+    struct XTCAN_BAT
+    {
+        uint8_t batid;
+        float voltage;
+        float current;
+        float temperature;
+        uint16_t soc;
+        uint16_t soh;
+    };
+
     bool xtcan_get_frame(XTCAN_Frame &frame);
+    bool xtcan_get_bat_info(XTCAN_BAT &bat_info, uint8_t index);
+
+    static const uint8_t MAX_BAT_NUM = 4; //暂定最多使用4块电池
 
 private:
     void loop();
     bool write_frame(AP_HAL::CANFrame &out_frame, uint32_t timeout_us);
     bool read_frame(AP_HAL::CANFrame &recv_frame, uint32_t timeout_us);
+
+    void phrase_GS_battery(uint8_t *payload, uint8_t len, uint8_t index);
+
+    struct XTBatRx
+    {
+        uint8_t bat_id;
+        uint8_t payload[64];
+        uint8_t offset;
+        bool toggle;
+        bool receiving;
+    };
+
+    XTBatRx _recvbat[MAX_BAT_NUM]{};
 
     //parameters
     AP_Int8 _xtcan_node;
@@ -61,6 +87,9 @@ private:
 
     XTCAN_Frame _xtcan_frame{};
     bool _new_wdata{false};
+
+    XTCAN_BAT _xtcan_bat[MAX_BAT_NUM]{};
+    bool _new_bat_info[MAX_BAT_NUM]{false};
 };
 
 #endif //HAL_XTCAN_ENABLED

@@ -10,7 +10,6 @@ public:
     {
         NONE = 0,
         RECV_LORA = 1,
-        RECV_MISEND = 2
     };
 
     /* 处理串口接收的数据 */
@@ -38,7 +37,6 @@ public:
     const mavlink_adsb_vehicle_t *find_tar_from_map(uint32_t adress);
 
     bool xt_build_mis{false};
-    bool auto_mission{false};
     uint8_t xt_id{0};
     bool WetValid{false};
     float WetData{0.0f};
@@ -56,8 +54,6 @@ private:
     /* 串口通信定义 */
     /* 与lora模块的通信协议定义(uint8_t)：0xAA 0x55 length payload CRC_L CRC_H*/
     /* lora传输的payload结构体,长度为1+4+4=9字节，整帧长度为14字节 */
-    /* 传递mission已完成的通信协议定义(uint8_t): 0XAA 0xFF id bool */
-    /* payload为0x00或0x01，整帧长度4字节 */
     struct lora_struct
     {
         uint8_t node_id;
@@ -74,8 +70,6 @@ private:
         WAIT_PAYLOAD,
         WAIT_CRC1,
         WAIT_CRC2,
-        WAIT_ID,
-        WAIT_BOOL
     };
 
     lora_struct _rec_struct;

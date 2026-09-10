@@ -107,6 +107,9 @@ protected:
     // - Resulting velocity and acceleration are sent to the position controller.
     void calc_desired_velocity(bool avoidance_on = true);
 
+    // 使用幂次控制器代替当前的平方根控制器，设计为根据实际速度闭环
+    float power_controller(float desired_speed, Vector2f desired_speed_norm);
+
     // references and pointers to external libraries
     const AP_AHRS_View&     _ahrs;
     AC_PosControl&          _pos_control;
@@ -120,6 +123,7 @@ protected:
     AP_Float    _brake_jerk_max_msss;   // Maximum braking jerk (in m/s³) applied during braking transitions after pilot release.
     AP_Float    _brake_delay_s;         // Delay in seconds before braking begins after sticks are centered. Prevents premature deceleration during brief pauses.
     AP_Int8     _options;               // Loiter options bit mask
+    AP_Float    _brake_drag;            // 刹车时的阻力参数
 
     // Bitfields of LOITER_OPTIONS
     enum class LoiterOption {
@@ -135,7 +139,4 @@ protected:
     Vector2f    _predicted_euler_accel;     // Predicted roll/pitch angular rates (in rad/s) for pilot acceleration shaping.
     uint32_t    _brake_timer_ms;            // Timestamp (in ms) when braking logic was last triggered (sticks released).
     float       _brake_accel_mss;           // Current braking acceleration in m/s², updated using jerk limits over time.
-    bool        _brake_start{false};        // 通过加速度判断当前是否进入刹车减速阶段
-    bool        _brake_done{false};         // 进入刹车减速阶段后通过加速度判断刹车完毕
-    Vector2p    _brake_loc;                 // 刹车锁定时的位置，用以保持
 };

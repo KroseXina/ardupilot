@@ -44,6 +44,7 @@ class AP_BattMonitor_Torqeedo;
 class AP_BattMonitor_FuelLevel_Analog;
 class AP_BattMonitor_EFI;
 class AP_BattMonitor_Scripting;
+class AP_BattMonitor_XTCAN;
 
 
 class AP_BattMonitor
@@ -71,6 +72,8 @@ class AP_BattMonitor
     friend class AP_BattMonitor_FuelLevel_Analog;
     friend class AP_BattMonitor_Synthetic_Current;
     friend class AP_BattMonitor_Scripting;
+
+    friend class AP_BattMonitor_XTCAN;
 
 public:
 

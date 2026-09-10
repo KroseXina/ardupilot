@@ -93,6 +93,15 @@ const AP_Param::GroupInfo AC_Loiter::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("BRK_JRK_M", 11, AC_Loiter, _brake_jerk_max_msss, LOITER_BRAKE_JERK_DEFAULT_MSSS),
 
+    // @Param: BRK_DRAG
+    // @DisplayName: Loiter braking drag.
+    // @Description: Loiter braking drag. Higher values will remove braking faster if the pilot moves the sticks during a braking maneuver.
+    // @Units: m/s/s
+    // @Range: 2 10
+    // @Increment: 0.1
+    // @User: Advanced
+    AP_GROUPINFO("BRK_DRAG", 12, AC_Loiter, _brake_drag, 5.0f),
+
     AP_GROUPEND
 };
 
@@ -341,25 +350,22 @@ void AC_Loiter::calc_desired_velocity(bool avoidance_on)
     // update the desired velocity using our predicted acceleration
     desired_vel_ne_ms += _predicted_accel_ne_mss * dt_s;
 
-    // 当前是否在刹车的标志
-    bool isbraking = false;
-
     Vector2f loiter_accel_brake_mss;
     float desired_speed_ms = desired_vel_ne_ms.length();
     if (!is_zero(desired_speed_ms)) {
         Vector2f desired_vel_norm = desired_vel_ne_ms / desired_speed_ms;
 
         // Apply drag: deceleration proportional to current velocity
-        float drag_decel_mss = pilot_acceleration_max_mss * desired_speed_ms / gnd_speed_limit_ms;
+        //float drag_decel_mss = pilot_acceleration_max_mss * desired_speed_ms / gnd_speed_limit_ms;
+        float drag_decel_mss = pilot_acceleration_max_mss * MIN(desired_speed_ms / _brake_drag, 1.0f);
 
         // Determine braking acceleration based on stick release and delay timer
         float loiter_brake_accel_mss = 0.0f;
         if (_desired_accel_ne_mss.is_zero()) {
             if ((AP_HAL::millis() - _brake_timer_ms) > _brake_delay_s * 1000.0) {
-                // 期望速度不为0,但摇杆指令为0,说明在刹车
-                isbraking = true;
                 float brake_gain = _pos_control.NE_get_vel_pid().kP() * 0.5f;
                 loiter_brake_accel_mss = constrain_float(sqrt_controller(desired_speed_ms, brake_gain, _brake_jerk_max_msss, dt_s), 0.0f, _brake_accel_max_mss);
+                // loiter_brake_accel_mss = constrain_float(power_controller(desired_speed_ms, desired_vel_norm), 0.0f, _brake_accel_max_mss);
             }
         } else {
             loiter_brake_accel_mss = 0.0f;
@@ -399,62 +405,43 @@ void AC_Loiter::calc_desired_velocity(bool avoidance_on)
 
     // Retrieve current desired position
     Vector2p desired_pos_ned_m = _pos_control.get_pos_desired_NED_m().xy();
-    
-    if(isbraking) {
-        // 获取当前速度
-        Vector2f act_speed_ne = _pos_control.get_vel_estimate_NED_ms().xy();
-        float act_speed = act_speed_ne.length();
 
-        if(!_brake_done) {
-            // 如果速度很小，直接判断为刹车已经完成(避免除以0)
-            if(act_speed <= 0.05f) {
-                _brake_done = true;
-                _brake_loc = _pos_control.get_pos_estimate_NED_m().xy();
-            }
-            else {
-                // 获取加速度，使用PSC中的AE，平稳无噪声
-                Vector3f att_target_euler_rad = _attitude_control.get_att_target_euler_rad();
-                att_target_euler_rad.z = _ahrs.yaw;
-                Vector2f act_accel_ne  = _pos_control.lean_angles_rad_to_accel_NED_mss(att_target_euler_rad).xy();
-                // 计算沿着速度方向的加速度大小
-                Vector2f vel_norm = act_speed_ne.normalized();
-                float along_accel = act_accel_ne.dot(vel_norm);
-
-                if(!_brake_start) {
-                    if(along_accel < -0.3f) {
-                        // 加速度反向且超过0.3mss，判断为正在减速
-                        _brake_start = true;
-                    }
-                }
-                else {
-                    // 已经处于减速阶段，使用加速度归零+姿态水平+速度较低来判断
-                    bool att_level = (fabsf(_ahrs.get_pitch_rad()) < radians(3.0f) && fabsf(_ahrs.get_roll_rad()) < radians(3.0f));
-                    if((act_speed < 1.0f) && (along_accel >= 0.0f || att_level)) {
-                        _brake_done = true;
-                        _brake_loc = _pos_control.get_pos_estimate_NED_m().xy();
-                    }
-                }
-            }
-        }
-
-        if(_brake_done) {
-            desired_pos_ned_m = _brake_loc;
-            // desired_vel_ne_ms.zero();
-            // _desired_accel_ne_mss.zero();
-        }
-        else {
-            // Integrate velocity to update desired position
-            desired_pos_ned_m += (desired_vel_ne_ms * dt_s).topostype();
-        }
-    }
-    else {
-        // Integrate velocity to update desired position
-        desired_pos_ned_m += (desired_vel_ne_ms * dt_s).topostype();
-        
-        _brake_start = false;
-        _brake_done = false;
-    }
+    // Integrate velocity to update desired position
+    desired_pos_ned_m += (desired_vel_ne_ms * dt_s).topostype();
 
     // Send updated position, velocity, and acceleration to the position controller
     _pos_control.set_pos_vel_accel_NE_m(desired_pos_ned_m, desired_vel_ne_ms, _desired_accel_ne_mss);
+}
+
+float AC_Loiter::power_controller(float desired_speed, Vector2f desired_speed_norm)
+{
+    // 极低速保护
+    if(desired_speed < 0.03f) return 0.0f;
+
+    // 高速阶段定义
+    constexpr float v_max = 2.0f; 
+    // 线性阶段定义
+    constexpr float v_line = 0.6f;
+
+    // 获取当前实际速度
+    Vector2f act_spd = _pos_control.get_vel_estimate_NED_ms().xy();
+    // 实际速度在期望速度的分量(点积，有符号)
+    float act_spd_along = act_spd * desired_speed_norm;
+    // 速度分量小于0,意味着速度已经反向
+    float actual_speed = MAX(act_spd_along, 0.0f);
+
+    // 根据误差定义权重(速度差异越大，越相信真实速度)
+    float w_act = constrain_float(1.5f * fabsf(desired_speed - actual_speed), 0.0f, 0.9f);
+    float brake_speed = w_act * actual_speed + (1 - w_act) * desired_speed;
+
+    if(brake_speed > v_max)
+        return _brake_accel_max_mss * (actual_speed / desired_speed);
+
+    else if(brake_speed > v_line)
+        return _brake_accel_max_mss * powf(brake_speed / v_max, 0.4f);
+
+    else {
+        const float p = _brake_accel_max_mss * powf(v_line / v_max, 0.4f) / v_line;
+        return brake_speed * p;
+    }
 }

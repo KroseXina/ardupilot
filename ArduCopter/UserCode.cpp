@@ -24,8 +24,6 @@ XT::XT_result XT::handle_recv_data(uint8_t *data, int len, uint8_t id)
 		case WAIT_HEAD2:
 			if(byte == 0x55) //是lora定位信息
 				parse = WAIT_LENGTH;
-			else if(byte == 0xFF)  //是mission通知信息
-				parse = WAIT_ID;
 			else
 				parse = WAIT_HEAD1;
 			break;
@@ -65,18 +63,6 @@ XT::XT_result XT::handle_recv_data(uint8_t *data, int len, uint8_t id)
 						|((int32_t)payload[8] << 24);
 				return RECV_LORA;
 			}
-			break;
-		case WAIT_ID:
-			_rec_id = byte;
-			if((id != 0) && (_rec_id == id - 1)) //仅当id不为0,且收到了前一个id信息，才返回RECV_MISEND
-				parse = WAIT_BOOL;
-			else
-				parse = WAIT_HEAD1;
-			break;
-		case WAIT_BOOL:
-			parse = WAIT_HEAD1;
-			if(byte == 0x01)
-				return RECV_MISEND;
 			break;
 		}
 	}
@@ -255,10 +241,6 @@ void Copter::userhook_MediumLoop()
 			case XT::RECV_LORA :
 				xt.publish_adsb();
 				break;
-
-			case XT::RECV_MISEND :
-				xt.auto_mission = true;
-				break;
 			}
 		}
 	}
@@ -311,29 +293,6 @@ void Copter::userhook_SuperSlowLoop()
 	xt.xt_id = g2.user_parameters.get_xt_id();
 
 	AP_Mission& mission = copter.mode_auto.mission;
-
-	// 若收到recv_misend,进行自动任务。（等待约5s再执行）
-	if(xt.auto_mission)
-	{
-		static uint8_t count = 0;
-		count ++;
-		if(count > 5)
-		{
-			//判断当前是否有mission(AP中home点始终作为第一个点)
-			if(mission.num_commands() > 1)
-			{
-				if(!copter.motors->armed())
-				{
-					copter.arming.arm(AP_Arming::Method::SCRIPTING);
-					copter.set_mode(Mode::Number::AUTO, ModeReason::GCS_COMMAND);
-					mission.start();
-				}
-			}
-
-			count = 0;
-			xt.auto_mission = false;
-		}
-	}
 
 	//飞机是否进入了mission
 	static bool vehicle_in_mission = false;
@@ -433,25 +392,7 @@ void Copter::userhook_SuperSlowLoop()
 			{
 				xt.xt_build_mis = false;
 			}
-
-			//发送完成信息，发送5次
-			if(xt_uart != nullptr)
-			{
-				uint8_t frame[4];
-				frame[0] = 0xAA;
-				frame[1] = 0xFF;
-				frame[2] = xt.xt_id;
-				frame[3] = 0x01;
-				xt_uart->write(frame, 4);
-			}
-			
-			static uint8_t count = 0;
-			count ++;
-			if(count > 5)
-			{
-				count = 0;
-				vehicle_in_mission = false;
-			}
+			vehicle_in_mission = false;
 		}
 	}
 

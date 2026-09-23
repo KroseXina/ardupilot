@@ -20,6 +20,8 @@ XT::XT_result XT::handle_recv_data(uint8_t *data, int len, uint8_t id)
 		case WAIT_HEAD1:
 			if(byte == 0xAA)
 				parse = WAIT_HEAD2;
+			if(byte == 0x01)
+				parse = WAIT_THRHEAD2;
 			break;
 		case WAIT_HEAD2:
 			if(byte == 0x55) //是lora定位信息
@@ -62,6 +64,34 @@ XT::XT_result XT::handle_recv_data(uint8_t *data, int len, uint8_t id)
 						|((int32_t)payload[7] << 16)
 						|((int32_t)payload[8] << 24);
 				return RECV_LORA;
+			}
+			break;
+
+		// 投料推杆
+		case WAIT_THRHEAD2:
+			if(byte == 0xB5)
+				parse = WAIT_PERCENT;
+			else
+				parse = WAIT_HEAD1;
+			break;
+		case WAIT_PERCENT:
+			_thr_percent = byte;
+			parse = WAIT_SUMCRC;
+			break;
+		case WAIT_SUMCRC:
+			{
+				uint16_t sum = 0x01 + 0xB5 + _thr_percent;
+				if(byte == (sum & 0xFF))
+					parse = WAIT_END;
+				else
+					parse = WAIT_HEAD1;
+				break;
+			}
+		case WAIT_END:
+			parse = WAIT_HEAD1;
+			if(byte == 0xDD) {
+				// 收到完整一帧
+				return RECV_THR;
 			}
 			break;
 		}
@@ -240,6 +270,10 @@ void Copter::userhook_MediumLoop()
 			
 			case XT::RECV_LORA :
 				xt.publish_adsb();
+				break;
+
+			case XT::RECV_THR :
+				gcs().send_text(MAV_SEVERITY_INFO,"推杆进度：%d%%", xt.get_thr_percent());
 				break;
 			}
 		}

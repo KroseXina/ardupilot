@@ -332,6 +332,9 @@ const AP_Param::GroupInfo AC_AttitudeControl_Multi::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("THR_G_BOOST", 7, AC_AttitudeControl_Multi, _throttle_gain_boost, 0.0f),
 
+    // AP_SUBGROUPINFO(_adrc_r_rate, "AARR", 8, AC_AttitudeControl_Multi, ADRC_ANGLE_RATE),
+    // AP_SUBGROUPINFO(_adrc_p_rate, "AARP", 9, AC_AttitudeControl_Multi, ADRC_ANGLE_RATE),
+
     AP_GROUPEND
 };
 
@@ -470,9 +473,21 @@ void AC_AttitudeControl_Multi::rate_controller_run_dt(const Vector3f& gyro_rads,
     _rate_gyro_rads = gyro_rads;
     _rate_gyro_time_us = AP_HAL::micros64();
 
+    // bool allow_eso = _motors.armed() && (_motors.get_spool_state() == AP_Motors::SpoolState::THROTTLE_UNLIMITED);
+
+    // const float adrc_u_roll = _adrc_r_rate.update(ang_vel_body.x, gyro_rads.x, dt, _u_prev.x, allow_eso);
+    // const float u_roll = adrc_u_roll + _actuator_sysid.x;
+    // _motors.set_roll(u_roll);
+    // _u_prev.x = u_roll;
+    //_adrc_r_rate.write_log(LOG_ADRC_R_RATE);
     _motors.set_roll(get_rate_roll_pid().update_all(ang_vel_body.x, gyro_rads.x,  dt, _motors.limit.roll, _pd_scale.x, _i_scale.x) + _actuator_sysid.x);
     _motors.set_roll_ff(get_rate_roll_pid().get_ff());
 
+    // const float adrc_u_pitch = _adrc_p_rate.update(ang_vel_body.y, gyro_rads.y, dt, _u_prev.y, allow_eso);
+    // const float u_pitch = adrc_u_pitch + _actuator_sysid.y;
+    // _motors.set_pitch(u_pitch);
+    // _u_prev.y = u_pitch;
+    //_adrc_p_rate.write_log(LOG_ADRC_P_RATE);
     _motors.set_pitch(get_rate_pitch_pid().update_all(ang_vel_body.y, gyro_rads.y,  dt, _motors.limit.pitch, _pd_scale.y, _i_scale.y) + _actuator_sysid.y);
     _motors.set_pitch_ff(get_rate_pitch_pid().get_ff());
 

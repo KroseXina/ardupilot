@@ -100,7 +100,7 @@ const AP_Param::GroupInfo AC_Loiter::var_info[] = {
     // @Range: 2 10
     // @Increment: 0.1
     // @User: Advanced
-    AP_GROUPINFO("BRK_DRAG", 12, AC_Loiter, _brake_drag, 5.0f),
+    AP_GROUPINFO("BRK_DRAG", 12, AC_Loiter, _brake_drag, 7.0f),
 
     AP_GROUPEND
 };

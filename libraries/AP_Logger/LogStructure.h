@@ -153,6 +153,7 @@ const struct MultiplierStructure log_Multipliers[] = {
 #include <AP_HAL/LogStructure.h>
 #include <AP_Mission/LogStructure.h>
 #include <AP_Servo_Telem/LogStructure.h>
+#include <AC_ADRC/AC_ADRCLogStructure.h>
 
 #include <AP_RTC/AP_RTC_config.h>
 
@@ -1274,7 +1275,8 @@ LOG_STRUCTURE_FROM_AIS \
     { LOG_MOTBATT_MSG, sizeof(log_MotBatt), \
       "MOTB", "QfffffB",  "TimeUS,LiftMax,BatVolt,ThLimit,ThrAvMx,ThrOut,FailFlags", "s------", "F------" , true }, \
     { LOG_SPOL_MSG, sizeof(log_SPOL), \
-      "SPOL", "QBB",  "TimeUS,Spl,SplDes", "s--", "F--" , true }
+      "SPOL", "QBB",  "TimeUS,Spl,SplDes", "s--", "F--" , true }, \
+      LOG_STRUCTURE_FROM_ADRC
 
 // message types 0 to 31 reserved for vehicle-specific use
 
@@ -1367,6 +1369,7 @@ enum LogMessages : uint8_t {
     LOG_RCOUT3_MSG,
     LOG_IDS_FROM_FENCE,
     LOG_IDS_FROM_HAL,
+    LOG_IDS_FROM_ADRC,
 
     _LOG_LAST_MSG_
 };

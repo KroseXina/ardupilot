@@ -486,25 +486,22 @@ bool ModeAuto::wp_start(const Location& dest_loc)
         if(!dest_loc.get_vector_xy_from_origin_NE_m(dest_ne_m))
             return false;
         
-        // // 获取当前位置并计算与目标位置的偏航角度
-        // Location cur_loc = copter.current_loc;
-        // Vector2p loc_ne_m;
-        // if(!cur_loc.get_vector_xy_from_origin_NE_m(loc_ne_m))
-        //     return false;
-
-        // xt_yawtarget_rad = get_bearing_rad(loc_ne_m.tofloat(), dest_ne_m.tofloat());
-
-        // if (!wp_nav->set_wp_destination_loc(cur_loc)) {
-        // return false;
-        // }
+        // 获取当前位置并计算与目标位置的偏航角度(水平方向使用stop，垂直方向使用current)
+        Vector3p target_ned;
+        wp_nav->get_wp_stopping_point_NED_m(target_ned);
         
-        // 使用停止点比使用当前点更稳定/丝滑
-        Vector3p stopping_point_ned_m;
-        wp_nav->get_wp_stopping_point_NED_m(stopping_point_ned_m);
-        wp_nav->set_wp_destination_NED_m(stopping_point_ned_m);
+        bool is_terrain_alt;
+        Location cur_loc = copter.current_loc;
+        Vector3p cur_ned;
+        // convert Location to NED position vector in meters and determine altitude reference frame
+        if (!wp_nav->get_vector_NED_m(cur_loc, cur_ned, is_terrain_alt)) {
+            return false;
+        }
+        target_ned.z = cur_ned.z;
 
-        xt_yawtarget_rad = get_bearing_rad(stopping_point_ned_m.xy().tofloat(), dest_ne_m.tofloat());
+        wp_nav->set_wp_destination_NED_m(target_ned, is_terrain_alt);
 
+        xt_yawtarget_rad = get_bearing_rad(target_ned.xy().tofloat(), dest_ne_m.tofloat());
         auto_yaw.set_yaw_angle_and_rate_rad(xt_yawtarget_rad, 0.0f);
 
         xt_yaw_wait = false;
@@ -1337,14 +1334,14 @@ void ModeAuto::xt_yaw_run()
 
     // 偏航到位，转到wp_run
     if(fabsf(wrap_PI(xt_yawtarget_rad - copter.ahrs.get_yaw_rad())) <= radians(2)){
-        // 原地等待2s再前进
+        // 原地等待0.5s再前进
         static uint32_t start_ms{};
         if(!xt_yaw_wait) {
             start_ms = AP_HAL::millis();
             xt_yaw_wait = true;
         }
         
-        if(AP_HAL::millis() - start_ms >= 2 * 1000) {
+        if(AP_HAL::millis() - start_ms >= 500) {
             // 设置目标位置
             if(!wp_nav->set_wp_destination_loc(xt_store_loc))
                 return;

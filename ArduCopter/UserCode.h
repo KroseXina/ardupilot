@@ -10,6 +10,7 @@ public:
     {
         NONE = 0,
         RECV_LORA = 1,
+        RECV_THR = 2,
     };
 
     /* 处理串口接收的数据 */
@@ -35,6 +36,9 @@ public:
 
     /* 根据map_icao反向查找对应的targets.因targets是依据icao排序的，使用二分查找 */
     const mavlink_adsb_vehicle_t *find_tar_from_map(uint32_t adress);
+
+    /* 返回推杆机构的百分比 */
+    uint8_t get_thr_percent() {return _thr_percent;}
 
     bool xt_build_mis{false};
     uint8_t xt_id{0};
@@ -70,10 +74,16 @@ private:
         WAIT_PAYLOAD,
         WAIT_CRC1,
         WAIT_CRC2,
+
+        WAIT_THRHEAD2,
+        WAIT_PERCENT,
+        WAIT_SUMCRC,
+        WAIT_END,
     };
 
     lora_struct _rec_struct;
     uint8_t _rec_id{0};
+    uint8_t _thr_percent{};
 
     uint16_t crc_ccitt(const uint8_t *data, uint8_t len)
     {

@@ -284,14 +284,14 @@ void ModeRTL::climb_return_run()
     }
     else {
         if(fabsf(wrap_PI(tar_yaw_rad - copter.ahrs.get_yaw_rad())) <= radians(2)) {
-            // 偏航完成2s后再推进
+            // 偏航完成后再推进
             static uint32_t start_ms{};
             if(!yaw_wait) {
                 start_ms = AP_HAL::millis();
                 yaw_wait = true;
             }
             
-            if(AP_HAL::millis() - start_ms >= 2 * 1000) {
+            if(AP_HAL::millis() - start_ms >= 500) {
                 _state_complete = true;
                 yaw_has_done = true;
             }

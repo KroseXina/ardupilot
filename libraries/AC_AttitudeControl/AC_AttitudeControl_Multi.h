@@ -5,6 +5,7 @@
 
 #include "AC_AttitudeControl.h"
 #include <AP_Motors/AP_MotorsMulticopter.h>
+//#include <AC_ADRC/AC_ADRC.h>
 
 // default rate controller PID gains
 #ifndef AC_ATC_MULTI_RATE_RP_P
@@ -154,4 +155,8 @@ protected:
 
     // angle_p/pd boost multiplier
     AP_Float              _throttle_gain_boost;
+
+    // ADRC_ANGLE_RATE _adrc_r_rate;  // 滚转角速度ADRC
+    // ADRC_ANGLE_RATE _adrc_p_rate;  // 俯仰角速度ADRC
+    // Vector2f _u_prev{};
 };

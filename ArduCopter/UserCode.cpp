@@ -100,6 +100,41 @@ XT::XT_result XT::handle_recv_data(uint8_t *data, int len, uint8_t id)
     return NONE;
 }
 
+void XT::set_thr_percent(uint8_t *payload)
+{
+	static uint8_t target_prev{};
+	static uint8_t count{};
+	static bool is_opening{true};
+
+	if(_thr_percent <= 2) {
+		//打开阶段
+		is_opening = true;
+	}
+	if(_thr_percent >= 98) {
+		//关闭阶段
+		is_opening = false;
+	}
+
+	static int16_t target_percent = _thr_percent;
+	if((is_opening && (_thr_percent >= target_prev)) || (!is_opening && (_thr_percent <= target_prev))) {
+		count ++;
+		if(count >= 10) {
+			if(is_opening) target_percent += 10;
+			else target_percent -= 30;
+			count = 0;
+		}
+	}
+
+	payload[0] = 0xB5;
+	payload[1] = 0x01;
+	payload[2] = (uint8_t)constrain_int16(target_percent,0,100);
+	uint16_t sum = 0xB5 + 0x01 + payload[2];
+	payload[3] = sum & 0xFF;
+	payload[4] = 0x2B;
+	target_prev = payload[2];
+	gcs().send_text(MAV_SEVERITY_INFO, "推杆目标：%d%%",target_prev);
+}
+
 void XT::publish_adsb()
 {
 		//gcs().send_text(MAV_SEVERITY_INFO,"XT receive lora.");
@@ -273,8 +308,19 @@ void Copter::userhook_MediumLoop()
 				break;
 
 			case XT::RECV_THR :
-				gcs().send_text(MAV_SEVERITY_INFO,"推杆进度：%d%%", xt.get_thr_percent());
-				break;
+				{
+					static uint8_t count{};
+					count ++;
+					// 至多500ms执行
+					if(count > 5) {
+						gcs().send_text(MAV_SEVERITY_INFO,"推杆进度：%d%%", xt.get_thr_percent());
+						count = 0;
+						uint8_t send[5]{};
+						xt.set_thr_percent(send);
+						xt_uart->write(send, sizeof(send));
+					}
+					break;
+				}
 			}
 		}
 	}

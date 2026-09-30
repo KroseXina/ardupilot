@@ -40,6 +40,9 @@ public:
     /* 返回推杆机构的百分比 */
     uint8_t get_thr_percent() {return _thr_percent;}
 
+    /* 0923临时测试 计算推杆百分比*/
+    void set_thr_percent(uint8_t *payload);
+
     bool xt_build_mis{false};
     uint8_t xt_id{0};
     bool WetValid{false};

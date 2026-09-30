@@ -93,15 +93,6 @@ const AP_Param::GroupInfo AC_Loiter::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("BRK_JRK_M", 11, AC_Loiter, _brake_jerk_max_msss, LOITER_BRAKE_JERK_DEFAULT_MSSS),
 
-    // @Param: BRK_DRAG
-    // @DisplayName: Loiter braking drag.
-    // @Description: Loiter braking drag. Higher values will remove braking faster if the pilot moves the sticks during a braking maneuver.
-    // @Units: m/s/s
-    // @Range: 2 10
-    // @Increment: 0.1
-    // @User: Advanced
-    AP_GROUPINFO("BRK_DRAG", 12, AC_Loiter, _brake_drag, 7.0f),
-
     AP_GROUPEND
 };
 
@@ -350,22 +341,26 @@ void AC_Loiter::calc_desired_velocity(bool avoidance_on)
     // update the desired velocity using our predicted acceleration
     desired_vel_ne_ms += _predicted_accel_ne_mss * dt_s;
 
+    bool is_braking = false;
     Vector2f loiter_accel_brake_mss;
     float desired_speed_ms = desired_vel_ne_ms.length();
     if (!is_zero(desired_speed_ms)) {
         Vector2f desired_vel_norm = desired_vel_ne_ms / desired_speed_ms;
 
         // Apply drag: deceleration proportional to current velocity
-        //float drag_decel_mss = pilot_acceleration_max_mss * desired_speed_ms / gnd_speed_limit_ms;
-        float drag_decel_mss = pilot_acceleration_max_mss * MIN(desired_speed_ms / _brake_drag, 1.0f);
+        float drag_decel_mss = pilot_acceleration_max_mss * desired_speed_ms / gnd_speed_limit_ms;
 
         // Determine braking acceleration based on stick release and delay timer
         float loiter_brake_accel_mss = 0.0f;
         if (_desired_accel_ne_mss.is_zero()) {
-            if ((AP_HAL::millis() - _brake_timer_ms) > _brake_delay_s * 1000.0) {
-                float brake_gain = _pos_control.NE_get_vel_pid().kP() * 0.5f;
-                loiter_brake_accel_mss = constrain_float(sqrt_controller(desired_speed_ms, brake_gain, _brake_jerk_max_msss, dt_s), 0.0f, _brake_accel_max_mss);
-                // loiter_brake_accel_mss = constrain_float(power_controller(desired_speed_ms, desired_vel_norm), 0.0f, _brake_accel_max_mss);
+            if ((AP_HAL::millis() - _brake_timer_ms) > _brake_delay_s * 1000.0f) {
+                // float brake_gain = _pos_control.NE_get_vel_pid().kP() * 0.5f;
+                // loiter_brake_accel_mss = constrain_float(sqrt_controller(desired_speed_ms, brake_gain, _brake_jerk_max_msss, dt_s), 0.0f, _brake_accel_max_mss);
+                // 刹车控制器
+                loiter_brake_accel_mss = brake_controller(desired_speed_ms);
+                // 刹车时重新计算drag
+                drag_decel_mss *= 1 + MAX((gnd_speed_limit_ms - desired_speed_ms),0.0f) / gnd_speed_limit_ms; 
+                is_braking = true;
             }
         } else {
             loiter_brake_accel_mss = 0.0f;
@@ -382,7 +377,11 @@ void AC_Loiter::calc_desired_velocity(bool avoidance_on)
     }
 
     // Apply braking acceleration to overall feed-forward acceleration
-    _desired_accel_ne_mss -= loiter_accel_brake_mss;
+    if(is_braking) {
+        _desired_accel_ne_mss = -loiter_accel_brake_mss;
+    }
+    else
+        _desired_accel_ne_mss -= loiter_accel_brake_mss;
 
     // Apply final velocity magnitude constraint
     float desired_vel_ms = desired_vel_ne_ms.length();
@@ -413,35 +412,19 @@ void AC_Loiter::calc_desired_velocity(bool avoidance_on)
     _pos_control.set_pos_vel_accel_NE_m(desired_pos_ned_m, desired_vel_ne_ms, _desired_accel_ne_mss);
 }
 
-float AC_Loiter::power_controller(float desired_speed, Vector2f desired_speed_norm)
+float AC_Loiter::brake_controller(float speed)
 {
     // 极低速保护
-    if(desired_speed < 0.03f) return 0.0f;
+    if(speed < 0.03f) return 0.0f;
 
     // 高速阶段定义
-    constexpr float v_max = 2.0f; 
-    // 线性阶段定义
-    constexpr float v_line = 0.6f;
+    constexpr float v_max = 3.0f;
+    // 最大刹车加速度,取最大加速度的3/4
+    float brake_acc_max = angle_rad_to_accel_mss(get_angle_max_rad() * 0.75f);
 
-    // 获取当前实际速度
-    Vector2f act_spd = _pos_control.get_vel_estimate_NED_ms().xy();
-    // 实际速度在期望速度的分量(点积，有符号)
-    float act_spd_along = act_spd * desired_speed_norm;
-    // 速度分量小于0,意味着速度已经反向
-    float actual_speed = MAX(act_spd_along, 0.0f);
+    if(speed > v_max)
+        return brake_acc_max;
 
-    // 根据误差定义权重(速度差异越大，越相信真实速度)
-    float w_act = constrain_float(1.5f * fabsf(desired_speed - actual_speed), 0.0f, 0.9f);
-    float brake_speed = w_act * actual_speed + (1 - w_act) * desired_speed;
-
-    if(brake_speed > v_max)
-        return _brake_accel_max_mss * (actual_speed / desired_speed);
-
-    else if(brake_speed > v_line)
-        return _brake_accel_max_mss * powf(brake_speed / v_max, 0.4f);
-
-    else {
-        const float p = _brake_accel_max_mss * powf(v_line / v_max, 0.4f) / v_line;
-        return brake_speed * p;
-    }
+    else
+        return brake_acc_max * (speed / v_max);
 }

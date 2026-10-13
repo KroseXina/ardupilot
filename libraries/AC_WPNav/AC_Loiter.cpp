@@ -341,7 +341,6 @@ void AC_Loiter::calc_desired_velocity(bool avoidance_on)
     // update the desired velocity using our predicted acceleration
     desired_vel_ne_ms += _predicted_accel_ne_mss * dt_s;
 
-    bool is_braking = false;
     Vector2f loiter_accel_brake_mss;
     float desired_speed_ms = desired_vel_ne_ms.length();
     if (!is_zero(desired_speed_ms)) {
@@ -354,13 +353,8 @@ void AC_Loiter::calc_desired_velocity(bool avoidance_on)
         float loiter_brake_accel_mss = 0.0f;
         if (_desired_accel_ne_mss.is_zero()) {
             if ((AP_HAL::millis() - _brake_timer_ms) > _brake_delay_s * 1000.0f) {
-                // float brake_gain = _pos_control.NE_get_vel_pid().kP() * 0.5f;
-                // loiter_brake_accel_mss = constrain_float(sqrt_controller(desired_speed_ms, brake_gain, _brake_jerk_max_msss, dt_s), 0.0f, _brake_accel_max_mss);
-                // 刹车控制器
-                loiter_brake_accel_mss = brake_controller(desired_speed_ms);
-                // 刹车时重新计算drag
-                drag_decel_mss *= 1 + MAX((gnd_speed_limit_ms - desired_speed_ms),0.0f) / gnd_speed_limit_ms; 
-                is_braking = true;
+                float brake_gain = _pos_control.NE_get_vel_pid().kP() * 0.5f;
+                loiter_brake_accel_mss = constrain_float(sqrt_controller(desired_speed_ms, brake_gain, _brake_jerk_max_msss, dt_s), 0.0f, _brake_accel_max_mss);
             }
         } else {
             loiter_brake_accel_mss = 0.0f;
@@ -376,12 +370,7 @@ void AC_Loiter::calc_desired_velocity(bool avoidance_on)
         desired_vel_ne_ms = desired_vel_norm * desired_speed_ms;
     }
 
-    // Apply braking acceleration to overall feed-forward acceleration
-    if(is_braking) {
-        _desired_accel_ne_mss = -loiter_accel_brake_mss;
-    }
-    else
-        _desired_accel_ne_mss -= loiter_accel_brake_mss;
+    _desired_accel_ne_mss -= loiter_accel_brake_mss;
 
     // Apply final velocity magnitude constraint
     float desired_vel_ms = desired_vel_ne_ms.length();
@@ -410,21 +399,4 @@ void AC_Loiter::calc_desired_velocity(bool avoidance_on)
 
     // Send updated position, velocity, and acceleration to the position controller
     _pos_control.set_pos_vel_accel_NE_m(desired_pos_ned_m, desired_vel_ne_ms, _desired_accel_ne_mss);
-}
-
-float AC_Loiter::brake_controller(float speed)
-{
-    // 极低速保护
-    if(speed < 0.03f) return 0.0f;
-
-    // 高速阶段定义
-    constexpr float v_max = 3.0f;
-    // 最大刹车加速度,取最大加速度的3/4
-    float brake_acc_max = angle_rad_to_accel_mss(get_angle_max_rad() * 0.75f);
-
-    if(speed > v_max)
-        return brake_acc_max;
-
-    else
-        return brake_acc_max * (speed / v_max);
 }

@@ -12,7 +12,7 @@
 #define POSHOLD_BRAKE_TIME_ESTIMATE_MAX_MS      6000    // Maximum duration (ms) allowed for braking before transitioning to loiter
 #define POSHOLD_BRAKE_TO_LOITER_TIME_MS         1500    // Duration (ms) over which braking is blended into loiter control during BRAKE_TO_LOITER phase
 #define POSHOLD_WIND_COMP_START_TIME_MS         1500    // Delay (ms) after entering loiter before wind compensation begins updating
-#define POSHOLD_CONTROLLER_TO_PILOT_MIX_TIME_MS 500     // Duration (ms) over which control is blended from autopilot to pilot input during CONTROLLER_TO_PILOT_OVERRIDE
+#define POSHOLD_CONTROLLER_TO_PILOT_MIX_TIME_MS 10     // Duration (ms) over which control is blended from autopilot to pilot input during CONTROLLER_TO_PILOT_OVERRIDE
 #define POSHOLD_SMOOTH_RATE_FACTOR              0.0125f // Low-pass filter factor for smoothing pilot roll/pitch input as it returns to center
 #define TC_WIND_COMP                            0.0025f // Time constant for filtering wind compensation lean angle estimates (used in low-pass filter)
 
